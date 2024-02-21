@@ -1,2 +1,2 @@
 # Data_Visualization
-Here are some sampel data visualization work
+Here are some sample data visualization work
