@@ -1,6 +1,6 @@
 ## Babynames
 
-For each year from 1880 to 2017, the data contains the number of children of each sex given each name. All names with more than 5 uses are given (Source: http://www.ssa.gov/oact/babynames/limits.html). We are using the package "babynames" to get familiar with time series plots.
+For each year from 1880 to 2017, the data contains the number of children of each sex given each name. All names with more than 5 uses are given (Source: http://www.ssa.gov/oact/babynames/limits.html). I am using the package "babynames" to get familiar with time series plots.
 
 I try to explore:
 - Plot the most common names in 2017 over the entire period.
