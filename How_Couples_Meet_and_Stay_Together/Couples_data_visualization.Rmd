@@ -1,0 +1,441 @@
+---
+title: "Couples_data_visualization"
+author: "Fiona Fang"
+date: "2024-02-13"
+output: html_document
+---
+
+# Preparation
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load necessary packages
+
+```{r}
+pacman::p_load(readr, dplyr, ggplot2, tidyr, plotly, DT, crosstalk) 
+```
+
+Load the HCMST survey data
+
+```{r}
+hcmst_data <- readRDS("HCMST_couples.rds")
+```
+
+
+## Question 1: Dating trends over time
+
+Visualize how the mode of meeting for the first time has changed over the years.
+
+### 1. Simplify meeting_type into fewer categories
+
+Check the meeting_type column
+
+```{r, warning = F}
+summary(hcmst_data$meeting_type)
+```
+
+Simplify into fewer categories, including grade school, college, neighbors, bar, work, non-work, and online
+
+```{r, warning = F}
+# Create simplified_meeting_type
+hcmst_data <- hcmst_data %>%
+  mutate(simplified_meeting_type = case_when(
+    meeting_type %in% c('Primary or Secondary School') ~ 'Grade School',
+    meeting_type %in% c('College') ~ 'College',
+    meeting_type %in% c('Work Neighbors') ~ 'Neighbors',
+    meeting_type %in% c('Bar or Restaurant') ~ 'Bar',
+    meeting_type %in% c('Business Trip', 'Customer-Client Relationship', 'Military') ~ 'Work',
+    meeting_type %in% c('Blind Date', 'Private Party', 'Public Place', 'On Vacation', 
+                        'Volunteer Organization', 'Church') ~ 'Non-Work',
+    meeting_type %in% c('Internet Chat', 'Internet Dating or Phone App', 'Online Gaming', 
+                        'Internet Site', 'Internet', 'Internet Social Network', 'Met Online') ~ 'Online',
+    TRUE ~ 'Other' 
+  ))
+```
+
+Calculate the frequency of meeting type for visualization
+
+```{r, warning = F}
+simplified_counts <- hcmst_data %>%
+  group_by(simplified_meeting_type) %>%
+  summarise(count = n(), .groups = 'drop')
+
+print(simplified_counts)
+```
+
+
+### 2. Deal with time frames
+
+Given the extensive time span of the dataset, ranging from 1939 to 2017, visualizing the yearly trend may result in a cluttered and difficult-to-interpret plot. Thus, I choose to aggregate the data into five-year intervals.
+
+```{r}
+# Round Q21A_Year to the nearest five years
+hcmst_data$Q21A_Year <- as.numeric(as.character(hcmst_data$Q21A_Year))
+hcmst_data$year_rounded <- round(hcmst_data$Q21A_Year / 5) * 5
+
+# Remove NA values from Q21A_Year column only
+hcmst_data <- hcmst_data[!is.na(hcmst_data$Q21A_Year), ]
+
+# Aggregate data by rounded year and simplified meeting type
+meeting_type_over_5years <- hcmst_data %>%
+  group_by(year_rounded, simplified_meeting_type) %>%
+  summarise(count = n(), .groups = 'drop')
+
+# Create breaks and labels for x-axis
+breaks <- seq(min(meeting_type_over_5years$year_rounded), max(meeting_type_over_5years$year_rounded) + 5, by = 5)
+labels <- paste0(breaks, "-", breaks + 4)
+labels
+```
+
+
+### 3. Plot 1: Bar chart
+
+```{r, warning = F}
+plot1_meeting_type <- ggplot(meeting_type_over_5years, 
+                              aes(x = factor(year_rounded), y = count, fill = simplified_meeting_type)) +
+  geom_bar(stat = 'identity', position = 'stack') +
+  labs(title = "Trend of Meeting Mode Changes Over Time (Five-Year Intervals)",
+       x = "Year",
+       y = "Frequency",
+       fill = "Meeting Type") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), axis.title.x = element_blank()) +
+  scale_fill_brewer(palette = "Set3") +
+  scale_x_discrete(breaks = breaks, labels = labels)
+
+plot1_meeting_type
+
+```
+
+### 4. Plot 2: Line chart
+
+```{r, warning = F}
+plot2_meeting_type <- meeting_type_over_5years %>%
+  plot_ly(x = ~year_rounded, y = ~count, color = ~simplified_meeting_type, 
+          type = 'scatter', mode = 'lines', alpha = 0.2, hoverinfo = "none") %>%
+  layout(title = "Trend of Meeting Mode Changes Over Time (Five-Year Intervals)",
+         xaxis = list(title = "Year"),
+         yaxis = list(title = "Frequency"),
+         legend = list(title = "Meeting Type")) 
+
+plot2_meeting_type
+```
+
+
+### 5. Discussion
+
+#### Patterns:
+
+- Increase in Online Meetings: There is a significant increase in the frequency of online meetings starting from the early 2000s, with a sharp rise around 2010 and reaching the highest frequency by far on the graph in the 2020s. This likely correlates with the advent and proliferation of the internet and digital communication technologies.
+
+- Steady or Declining Traditional Meeting Modes: Modes like meeting at bars, colleges, grade schools, through neighbors, or at work appear to be relatively steady or declining slightly over the years. This could be indicative of a societal shift towards digital interaction or changing social behaviors.
+
+#### I recommend the line chart for the following reasons: 
+
+- Clarity of Trends: The line plot effectively displays the overall trend of meeting mode over time. It is a clear visual representation to allow readers to see how meeting mode changes continuously across the entire time range. 
+
+- Comparative Analysis: With multiple lines representing different meeting types, readers can compare the trends of various meeting modes over time. 
+
+- Interactivity: Readers can also double-click on the legend to view specific meeting modes.
+
+
+#### Three specific design choices influenced by data visualization principles:
+
+1. Gestalt Principles:
+
+- Proximity: In the bar chart, bars representing meeting types within each five-year interval are placed close to each other, emphasizing their relatedness. This proximity helps viewers quickly perceive the relationship between different meeting types within the same time frame.
+
+- Similarity: The consistent use of colors within each chart (e.g., different meeting types represented by different colors) adheres to the similarity principle. This consistency helps viewers associate similar elements (meeting types) based on color, facilitating easier interpretation of the data.
+
+2. Tufte’s Integrity and Design Principles:
+
+- Data-Ink Ratio: The design of both charts minimizes non-essential ink, following Tufte's principle of maximizing the data-ink ratio. Irrelevant elements, such as excessive gridlines or background clutter, are eliminated, focusing attention on the data itself.
+
+3. Preattentive Attributes and Patterns:
+
+- Color Use for Categorical Variables: Preattentive attributes, such as color, are effectively utilized to differentiate categorical variables (meeting types) within the charts. Viewers can quickly discern different meeting types based on color, enabling rapid visual processing and understanding.
+
+
+## Question 2. Age is just a number
+
+Create one (1) visualization to show the relationship between a respondent's age and their partner's age, accounting for the gender of the respondent? Identify the main pattern in the graph via an annotation directly added to the plot.
+
+```{r, warning = F}
+# Remove rows with NA values in the variables of interest
+hcmst_data_clean <- na.omit(hcmst_data[, c("ppage", "Q9", "ppgender")])
+
+ggplot(hcmst_data, aes(x = ppage, y = Q9, color = ppgender)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE) + # Adding a linear model fit
+  labs(title = "Relationship Between Respondent's Age and Partner's Age",
+       x = "Respondent's Age", 
+       y = "Partner's Age",
+       caption = "Source: How Couples Meet and Stay Together (Rosenfeld, Reuben, Falcon 2018)") +
+  theme_minimal() +
+  annotate("text", x = 50, y = 20, label = "Main pattern here", size = 5, color = "red")
+```
+
+Main pattern: Positive correlation between respondent's and partner's age
+
+
+## Question 3. Politics and Dating
+
+Explore how the political affiliation of partners affects the duration of the between the first encounter and the point at which the relationship becomes official
+
+Variables used here:
+
+- `partyid7`: contains the self reported political party affiliation of the survey respondent
+
+-  `w6_q12` : contains information about the partner's political party affiliation
+
+- `time_from_met_to_rel`: duration from meeting each other to start the relationship
+
+### Chart 1: heatmap
+
+```{r, warning = F}
+heatmap_politics_duration <- hcmst_data %>%
+  ggplot(aes(x = partyid7, y = w6_q12)) +
+  geom_tile(aes(fill = time_from_met_to_rel), color = "white") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  labs(title = "Relationship Between Political Affiliation of Partners and Duration Time",
+       x = "Respondent's Political Affiliation",
+       y = "Partner's Political Affiliation",
+       fill = "Duration Time") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(heatmap_politics_duration)
+```
+
+### Chart 2: boxplot
+
+```{r, warning = F}
+# Convert political affiliations to factors
+hcmst_data$partyid7 <- factor(hcmst_data$partyid7)
+hcmst_data$w6_q12 <- factor(hcmst_data$w6_q12)
+
+# Create a boxplot to visualize the distribution of duration time across different political affiliations of partners, using facets
+boxplot_politics_duration <- ggplot(hcmst_data, aes(x = partyid7, y = time_from_met_to_rel, fill = partyid7)) +
+  geom_boxplot() +
+  labs(title = "Distribution of Duration Time Across Different Political Affiliations of Partners",
+       x = NULL,
+       y = "Duration Time",
+       fill = "Respondent's Political Affiliation") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank()) +
+  facet_wrap(~ w6_q12, ncol=2) +
+  guides(fill = guide_legend(title = "Respondent's Political Affiliation"))
+
+print(boxplot_politics_duration)
+```
+
+### Discussion
+
+The first image presents a heatmap showing the relationship between the political affiliations of partners and the duration of some unspecified activity or state. The darkness of the color indicates the duration time, with darker colors representing longer durations. The heatmap provides a quick overview that allows for easy comparison across categories. However, it can be a bit abstract and might require more cognitive effort to interpret the exact values of duration time.
+
+The second image is a boxplot distribution, which provides a detailed view of the distribution of duration times across different political affiliations. This kind of plot not only shows median values (which can be seen as the line in the middle of the boxes) but also the spread and skewness of the data, and potential outliers (individual points).
+
+I recommend boxplot with facet. It provides more detailed information about the data distribution and allows the audience to understand not just the central tendency but also the variability and presence of outliers in the data. Heatmap may be difficult to understand.
+
+
+### Chart 3: visualize the relationship between political party affiliation of the survey respondent and their meeting type
+
+```{r}
+type_politics_data <- hcmst_data %>%
+  group_by(partyid7, simplified_meeting_type) %>%
+  summarise(count = n(), .groups = 'drop')
+
+ggplot(type_politics_data, aes(x = count , y = simplified_meeting_type, fill = partyid7)) +
+  geom_bar(stat = "identity", position = position_dodge()) +  
+  scale_fill_brewer(palette = "Dark2") + 
+  theme_minimal() +
+  labs(title = "Meeting Types by Respondent's Political Affiliation",
+       x = "Count",
+       y = "Meeting Type",
+       fill = "Political Affiliation") +
+  theme(legend.position = "right")
+
+
+```
+
+
+
+## Question 4. Your turn to choose
+
+### Chart 1: visualize the relationship between gender of respondents and partner income disparity
+
+```{r}
+income_data <- hcmst_data %>%
+  filter(!is.na(Q23), Q23 != "Refused") %>%
+  group_by(ppgender, Q23) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+# Create a grouped bar plot to visualize the count of each combination of gender of respondents and partner income disparity
+barplot_gender_income_disparity <- ggplot(income_data, aes(x = ppgender, y = count, fill = Q23)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Relationship Between Gender of Respondents and Partner Income Disparity",
+       x = "Gender of Respondents",
+       y = "Count",
+       fill = "Partner Income Disparity") +
+  theme_minimal()
+
+# Display the grouped bar plot
+print(barplot_gender_income_disparity)
+```
+
+### Chart 2: visualize the relationship between the gender of respondents and the number of times they have been married
+
+```{r}
+# Filter out rows with NA values in Q17A
+marriage_data <- hcmst_data %>%
+  filter(!is.na(Q17A)) %>%
+  group_by(ppgender, Q17A) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(proportion = count/sum(count))
+
+# Create pie chart with facets
+pie_chart_facet <- ggplot(marriage_data, aes(x = "", y = proportion, fill = as.factor(Q17A))) +
+  geom_bar(stat = "identity", color = "white") +
+  coord_polar("y", start = 0) +
+  labs(title = "Proportion of Times Respondents Have Been Married by Gender",
+       x = NULL,
+       y = NULL,
+       fill = "Marriage Count") +
+  theme_void() +
+  theme(legend.position = "right") +
+  scale_fill_brewer(palette = "Set3") +
+  facet_wrap(~ ppgender)
+
+# Display the pie chart with facets
+print(pie_chart_facet)
+
+```
+
+
+### Discussion
+
+I recommend the second chart, "Relationship Between Gender of Respondents and Partner Income Disparity," for the following reasons:
+
+- The bar chart clearly presents discrete categories of responses, making it easier for viewers to compare counts directly between genders. The pie chart only shows the proportion.
+
+- The bar chart allows for a direct comparison between male and female respondents across different categories of income disparity. However, the pie chart in the first image, while effective for showing proportions within each gender, doesn't allow for as straightforward a comparison between genders as the bar chart does. It requires the viewer to compare pie segments of different sizes across two charts, which can be less intuitive than comparing the lengths of bars side by side.
+
+
+Patterns: The bar chart reveals patterns such as which gender is more likely to earn more or less than their partner. This can be particularly insightful for discussions on gender roles and economic dynamics in relationships.
+
+Male Respondents:
+
+- The majority of male respondents report that their partner was not working for pay, followed by a substantial number indicating that they earned more than their partner.
+
+- A smaller proportion of male respondents report that their partner earned more than them.
+
+- The least number of male respondents indicate that they and their partner earned about the same amount.
+
+Female Respondents:
+
+- The majority of female respondents report that their partner earned more than they did.
+
+- Fewer female respondents report that they earned more than their partner or that they earned about the same amount.
+
+- A relatively small number of female respondents report that their partner was not working for pay.
+
+These patterns suggest traditional gender roles may still be prevalent, where male partners are more likely to be the sole earners or the higher earners within a relationship. In contrast, female respondents more frequently report earning less than their partners, indicating a potential wage gap or a tendency for women to be in relationships with higher-earning partners.
+
+
+## Question 5. Make two plots interactive
+
+### Chart 1: relationship between gender of respondents and partner income disparity
+
+```{r plotly_plot, fig.width=10, fig.height=6}
+# Filter out NA values in the Q23 variable (partner income disparity)
+income_data_filtered <- income_data[!is.na(income_data$Q23), ]
+
+# Create the plotly plot
+plot_ly(income_data_filtered, x = ~ppgender, y = ~count, color = ~Q23, type = "bar",
+        text = ~paste("Gender: ", ppgender, "<br>Count: ", count, "<br>Income Disparity: ", Q23),
+        hoverinfo = "text") %>%
+  layout(title = "Relationship Between Gender of Respondents and Partner Income Disparity",
+         xaxis = list(title = "Gender of Respondents"),
+         yaxis = list(title = "Count"),
+         barmode = "group")
+
+```
+
+
+For the barplot titled "Relationship Between Gender of Respondents and Partner Income Disparity," interactivity could help users to:
+
+- filter the data by specific categories
+
+- select multiple bars for a side-by-side comparison of the numbers
+
+
+### Chart 2: Relationship Between Respondent's Age and Partner's Age
+
+```{r, warning = F}
+# Filter out rows with NA values in the variables of interest
+hcmst_data_filtered <- hcmst_data[complete.cases(hcmst_data$Q9, hcmst_data$ppage), ]
+
+# Create a log transformation of the partner's age
+hcmst_data_filtered$log_partner_age <- log(hcmst_data_filtered$Q9)
+
+# Create the interactive scatter plot
+plot_ly(hcmst_data_filtered, y = ~Q9, x = ~ppage, color = ~ppgender, size = ~log_partner_age, type = "scatter", mode = "markers") %>%
+  layout(title = "Relationship Between Respondent's Age and Partner's Age",
+         xaxis = list(title = "Respondent's Age"),
+         yaxis = list(title = "Partner's Age"),
+         color = list(title = "Gender of Respondents"),
+         size = list(title = "Log of Partner's Age"))
+```
+
+Users can hover over the points to see specific data values and interact with the plot to explore the relationship between respondent's age and partner's age dynamically.
+
+
+## Question 6. Data Table
+
+To allow the reader to explore the survey data by themselves a bit, select a few useful variables, rename them appropriately for the table to be self-explanatory, and add an interactive data table to the output. Make sure the columns are clearly labeled. Select the appropriate options for the data table (e.g. search bar, sorting, column filters, in-line visualizations etc.). Suggest to the editor which kind of information you would like to provide in a data table and why.
+
+
+```{r, warning = F}
+# Select relevant variables and rename them
+selected_data <- hcmst_data %>%
+  select(partner_gender = Q4,
+         respondent_gender = ppgender, 
+         respondent_age = ppage,
+         partner_age = Q9,
+         relationship_duration = time_from_met_to_rel,
+         meeting_type = simplified_meeting_type)
+
+# Create an interactive data table
+datatable(selected_data,
+          extensions = 'Buttons',
+          options = list(dom = 'Bfrtip',
+                         buttons = c('copy', 'csv', 'excel', 'pdf', 'print'),
+                         pageLength = 10,
+                         searching = TRUE,
+                         ordering = TRUE,
+                         columnDefs = list(list(className = 'dt-center', targets = '_all')),
+                         lengthMenu = list(c(10, 20, 50), c('10', '20', '50'))),
+          rownames = FALSE)
+```
+
+
+For the interactive data table, I suggest providing the following information:
+
+1. Partner Gender: This column indicates the gender of the partner.
+2. Respondent Gender: This column indicates the gender of the respondent.
+3. Respondent Age: This column represents the age of the survey respondent.
+4. Partner Age: This column denotes the age of the partner.
+5. Relationship Duration: This column shows the duration of the romantic relationship before marriage or the duration from meeting to start of the relationship.
+6. Meeting Type: This column specifies the type of meeting that led to the relationship.
+
+Including these variables in the data table enables readers to explore key aspects of relationships, demographics, and meeting dynamics within the dataset. It allows for easy comparison and analysis, fostering a deeper understanding of the underlying trends and patterns in the data. Additionally, interactive features such as sorting, filtering, and searching enhance user experience and facilitate efficient data exploration.
+
+
+
+
+
+
