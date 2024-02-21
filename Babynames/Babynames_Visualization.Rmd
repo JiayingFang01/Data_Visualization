@@ -1,0 +1,155 @@
+---
+title: "Babynames Exercise"
+author: "Fiona Fang"
+output:
+  html_document:
+    toc: true
+    self_contained: true
+    keep_md: true
+  ioslides_presentation:
+    smaller: yes
+    keep_md: true
+  pdf_document:
+    toc: true
+    df_print: kable
+
+font-family: Helvetica
+subtitle: Data Visualization - Columbia University
+autosize: yes
+---
+
+## Preparation
+
+```{r setup, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+library("knitr")
+knitr::opts_chunk$set(echo = TRUE, eval=TRUE, message=FALSE, warning = FALSE)
+```
+
+Install data package:
+
+```{r, echo=TRUE}
+library(babynames)
+```
+
+```{r, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+library(ggplot2)    
+library(tidyverse) 
+```
+
+
+## 1. Plot the most common names in 2017 over the entire period
+
+### Select the top 10 boys and girls names in 2017 from the overall dataset
+
+```{r}
+common_names_2017 <- babynames %>% 
+  filter(year == 2017) %>% 
+  group_by(sex, name) %>%
+  summarize(total = sum(n)) %>%
+  arrange(desc(total)) %>%
+  group_by(sex) %>%
+  mutate(rank=row_number()) %>%
+  filter(rank<=10)  %>% # top 10
+  arrange(sex, rank)
+
+common_names_2017
+```
+
+### Separate them into two groups: boys and girls
+
+```{r}
+common_names_2017f <- common_names_2017 %>% filter(sex=="F")
+common_names_2017m <- common_names_2017 %>% filter(sex=="M")
+```
+
+### Top 10 common names in 2017 for girls over the entire period
+
+```{r}
+babynames %>%
+  filter(sex=="F") %>% # for girls
+  filter(name %in% common_names_2017f$name) %>%
+  ggplot(., aes(year, n)) +
+  geom_line(aes(color=name, group=name)) + 
+  labs(title = "Trend of Top 10 Girl Names of 2017 Over Time", 
+       x = "Year", y = "Number of Babies")
+```
+
+### Top 10 common names in 2017 for boys over the entire period
+
+```{r}
+babynames %>%
+  filter(sex=="M") %>% # for boys
+  filter(name %in% common_names_2017m$name) %>%
+  ggplot(., aes(year, n)) +
+  geom_line(aes(color=name, group=name)) + 
+  labs(title = "Trend of Top 10 Boy Names of 2017 Over Time", 
+       x = "Year", y = "Number of Babies")
+```
+
+
+## 2. Explore which names are most often used as unisex names. For which names has the popularity over time changed a lot?
+
+### Top 10 common unisex names
+
+Unisex: designed to be suitable for both sexes
+
+```{r}
+top10_unisex_names <- babynames %>%
+  group_by(name) %>%
+  filter(all(c("F", "M") %in% unique(sex))) %>% # unisex names
+  summarize(total = sum(n)) %>%
+  ungroup() %>%
+  top_n(10, total) # Top 10
+
+top10_unisex_names
+```
+
+```{r}
+top_unisex_names_data <- babynames %>%
+  filter(name %in% top10_unisex_names$name)
+```
+
+### Plot the data
+
+```{r}
+ggplot(top_unisex_names_data, aes(x = year, y = n, color = name)) +
+  geom_line() +
+  facet_wrap(~name) +
+  labs(title = "Popularity of Top 10 Unisex Names Over Time",
+       x = "Year",
+       y = "Number of Babies Named")
+
+```
+
+The popularity of specific names like David, James, John, Mary, Michael, Robert changed a lot over time.
+
+## 3. Identify one particular pattern in the data 
+
+### Define a list of religious names
+
+```{r}
+religious_names <- c("Mary", "Joseph", "Jesus", "Moses", "Abraham", "Isaac", "Solomon", "Mohammed", "Krishna","Rama","Siddhartha")
+```
+
+```{r}
+religious_names_data <- babynames %>%
+  filter(name %in% religious_names)
+
+yearly_totals <- religious_names_data %>%
+  group_by(year) %>%
+  summarize(total = sum(n)) %>%
+  ungroup()
+```
+
+### Plot the trends
+
+```{r}
+ggplot(yearly_totals, aes(x = year, y = total)) +
+  geom_line() +
+  labs(title = "Trends in Popularity of Religious Names Over Time",
+       x = "Year",
+       y = "Total Number of Babies Named")
+```
+
+As the plot shows, religious names are more and more common from 1880 to 1920, and less common after 1960. This trend can reflect various cultural, social, and historical influences. 
+
