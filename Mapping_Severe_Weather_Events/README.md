@@ -1,4 +1,4 @@
-# Mapping_Severe_Weather_Events
+## Mapping Severe Weather Events
 
 I aim to enhance the understanding of the spatial distribution and impacts of storm events across the United States by utilizing data from NOAA's National Centers for Environmental Information (NCEI), which maintains comprehensive records of all severe storm occurrences. Through analyzing this dataset, I seek to create visual representations that elucidate patterns and trends within these events.
 
