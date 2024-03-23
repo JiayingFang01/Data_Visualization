@@ -1,0 +1,530 @@
+---
+title: "Storm_data_visualization"
+author: "Fiona Fang"
+date: "2024-03-03"
+output: 
+  html_document:
+    theme: journal
+    toc: yes
+    toc_float:
+      collapsed: true
+---
+
+# Preparation
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load necessary packages
+
+```{r}
+pacman::p_load(tidyverse, maps, dplyr, ggplot2, ggthemes, sf, urbnmapr, statebins, 
+               data.table, leaflet, RColorBrewer, geosphere, RANN, readr, scales,
+               geosphere, purrr, htmlwidgets)
+```
+
+Load the weather data
+
+```{r}
+storm_data <- read.csv("/Users/jiaying/Desktop/5063_Data_Visualization/07_severe_weather_GRADED/data/storms.csv")
+head(storm_data)
+```
+
+Check the dimension of the dataset
+
+```{r}
+dim(storm_data)
+```
+
+# 1. Damage from Storms
+
+## a) State Level Choropleth Maps
+
+Provide a static state-level choropleth map of the United States visualizing where monetary damage is recorded (by using the sum of the variables `DAMAGE_PROPERTY_USD` and `DAMAGE_CROPS_USD`).
+
+```{r}
+# Examine the variables
+summary(storm_data$DAMAGE_PROPERTY_USD)
+summary(storm_data$DAMAGE_CROPS_USD)
+```
+
+### Get U.S states map
+
+```{r}
+# Load and prepare the US states map data, converting state names to uppercase
+us.states <- map_data("state") %>%
+  as_tibble() %>%
+  rename(state_name = region) %>%
+  select(-subregion) %>%
+  mutate(state_name = toupper(state_name))  
+
+# Create a table with state names, abbreviations, and centers
+statenames <- as_tibble(cbind(state_name = toupper(state.name),  
+                              state.abb = state.abb, 
+                              state.center.x = state.center$x, 
+                              state.center.y = state.center$y)) %>%
+  mutate(across(c(state.center.x, state.center.y), as.numeric))
+
+# Join the map data with state names, abbreviations, and centers
+us.states <- left_join(us.states, statenames, by = "state_name")
+
+```
+
+### State-level damage data
+
+```{r}
+# Summarize the storm damage by state name (now both in uppercase)
+damage_by_state <- storm_data %>%
+  group_by(STATE) %>%
+  summarise(Total_Damage_USD = sum(DAMAGE_PROPERTY_USD, na.rm = TRUE) + sum(DAMAGE_CROPS_USD, na.rm = TRUE)) %>%
+  rename(state_name = STATE)
+
+# Merge the damage data with the full us.states data, including geographic details
+damage_data_merged <- left_join(us.states, damage_by_state, by = "state_name")
+
+```
+
+### Plot the map
+
+```{r}
+# Plot the choropleth map with state-level damage data
+damage_map <- ggplot(damage_data_merged, aes(x = long, y = lat, group = group)) +
+  geom_polygon(aes(fill = Total_Damage_USD), color = "white") +
+  scale_fill_gradient(low = "lightblue", high = "red", name = "Total Damage (USD)") +
+  geom_text(data = statenames, inherit.aes = FALSE, 
+            aes(label = state.abb, x = state.center.x, y = state.center.y), color = "white") +
+  theme_void() +
+  coord_fixed(1.3) +
+  ggtitle("Total Damage by State")
+
+damage_map
+```
+
+Discussion:
+
+From the plot, we can see that Texas (TX), Louisiana (LA), and Florida (FL) are highlighted with the darkest red, suggesting these states have incurred the most monetary damage according to the data. This could be due to severe weather events affecting these states more significantly during the time frame of the data.
+
+State such as Georgia (GA) is colored with a moderate red, indicating a lesser degree of damage compared to the highest damage states but still significant. Most other states are colored in varying shades of blue, indicating relatively lower monetary damages from severe weather events. 
+
+There seems to be a pattern where states in the southeast and coastal regions show more damage, which could correlate with the frequency and intensity of storms, such as hurricanes, in those areas.
+
+
+## b) County Choropleth Maps
+
+Provide a static county-level choropleth map of the United States visualizing where monetary damage is recorded (by using the sum of the variables `DAMAGE_PROPERTY_USD` and `DAMAGE_CROPS_USD`).
+
+### Get U.S. County map
+
+```{r}
+# Retrieve county-level map data
+uscounties_sf <- get_urbn_map("counties", sf = TRUE)
+
+# Remove " County" and lowercase
+uscounties_sf <- uscounties_sf %>%
+  mutate(county_name = tolower(trimws(gsub(" County", "", county_name)))) 
+```
+
+### Calculate the damage data by county
+
+```{r, warning=FALSE}
+# Filter out county-level events
+county_events <- storm_data %>%
+  filter(CZ_TYPE == "C")
+
+# Aggregate the storm data at the county level
+county_damage <- county_events %>%
+  group_by(CZ_FIPS, CZ_NAME) %>%
+  summarise(Total_Damage = sum(DAMAGE_PROPERTY_USD, na.rm = TRUE) + sum(DAMAGE_CROPS_USD, na.rm = TRUE), .groups = "drop")
+
+# Standardize county names
+county_damage <- county_damage %>%
+  mutate(CZ_NAME = tolower(trimws(CZ_NAME)))
+
+county_damage$CZ_NAME <- gsub("\\(c\\)", "city", county_damage$CZ_NAME)
+county_damage$CZ_NAME <- sub("baltimore city city", "baltimore city", county_damage$CZ_NAME, ignore.case = TRUE)
+county_damage$CZ_NAME <- sub("bristol bay", "bristol bay borough", county_damage$CZ_NAME, ignore.case = TRUE)
+county_damage$CZ_NAME <- sub("carson city city", "carson city", county_damage$CZ_NAME, ignore.case = TRUE)
+county_damage$CZ_NAME <- sub("charles city city", "charles city", county_damage$CZ_NAME, ignore.case = TRUE)
+
+# Merge the aggregated damage data with the county-level map data
+damage_county_data_merged <- left_join(county_damage, uscounties_sf, by = c("CZ_NAME" = "county_name"))
+
+```
+
+### Create the map view
+
+```{r}
+# Plot the choropleth map with county-level damage data
+county_damage_map <- ggplot(damage_county_data_merged) +
+  geom_sf(aes(fill = Total_Damage, geometry = geometry)) + 
+  scale_fill_gradient(name = "Total Damage (USD)", low = "lightblue", high = "red") +
+  theme(legend.position = "right") +
+  ggtitle("Total Damage by County") +
+  theme(plot.title = element_text(hjust = 0.5, size = 20), legend.title = element_text(size = 10)) +
+  theme_map()
+
+county_damage_map
+```
+
+### Highlight state borders
+
+```{r, warning=FALSE}
+# Get state boundaries
+state_boundaries <- get_urbn_map("states", sf = TRUE)
+
+# Plot the county-level choropleth map
+county_damage_map <- ggplot() +
+  geom_sf(data = damage_county_data_merged, aes(fill = Total_Damage, geometry = geometry)) +  
+  scale_fill_gradient(name = "Total Damage (USD)", low = "lightblue", high = "red") +
+  theme(legend.position = "right") +
+  ggtitle("Total Damage by County") +
+  theme(plot.title = element_text(hjust = 0.5, size = 20), legend.title = element_text(size = 10)) +
+  theme_map() +
+  geom_sf(data = state_boundaries, fill = NA, color = "white", size = 10)
+
+county_damage_map
+```
+
+## c) Density Maps
+
+Provide an alternative map, in which you highlight the density of severe events by focusing on the variables of injuries and/or deaths associated with storms.  
+
+Discuss briefly which of the two approaches provides a better visual summary of the distribution of the destructive effects of storms.
+
+### Summarize total injuries and deaths by state
+
+Include both direct and indirect injuries and deaths
+
+```{r}
+storm_summary <- storm_data %>%
+  group_by(STATE) %>%
+  summarise(Total_Injuries = sum(INJURIES_DIRECT, na.rm = TRUE) + sum(INJURIES_INDIRECT, na.rm = TRUE),
+            Total_Deaths = sum(DEATHS_DIRECT, na.rm = TRUE) + sum(DEATHS_INDIRECT, na.rm = TRUE),
+            Total_Injuries_Deaths = Total_Injuries + Total_Deaths,
+            .groups = 'drop')
+```
+
+### Deal with state
+
+```{r}
+# Predefined list of state names and abbreviations
+state_abbreviations <- data.frame(
+   STATE = c("ALABAMA", "ALASKA", "ARIZONA", "ARKANSAS", "CALIFORNIA", "COLORADO",
+           "CONNECTICUT", "DELAWARE", "FLORIDA", "GEORGIA", "HAWAII", "IDAHO", "ILLINOIS",
+           "INDIANA", "IOWA", "KANSAS", "KENTUCKY", "LOUISIANA", "MAINE", "MARYLAND",
+           "MASSACHUSETTS", "MICHIGAN", "MINNESOTA", "MISSISSIPPI", "MISSOURI", "MONTANA",
+           "NEBRASKA", "NEVADA", "NEW HAMPSHIRE", "NEW JERSEY", "NEW MEXICO", "NEW YORK",
+           "NORTH CAROLINA", "NORTH DAKOTA", "OHIO", "OKLAHOMA", "OREGON", "PENNSYLVANIA",
+           "RHODE ISLAND", "SOUTH CAROLINA", "SOUTH DAKOTA", "TENNESSEE", "TEXAS", "UTAH",
+           "VERMONT", "VIRGINIA", "WASHINGTON", "WEST VIRGINIA", "WISCONSIN", "WYOMING"),
+  abbreviation = c("AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL",
+                   "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT",
+                   "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI",
+                   "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY")
+)
+
+# Convert state names to abbreviations
+storm_summary <- merge(storm_summary, state_abbreviations, by.x = "STATE", by.y = "STATE", all.x = TRUE)
+
+# Keep only the rows where a match was found in state_abbreviations
+storm_summary <- storm_summary[!is.na(storm_summary$abbreviation),]
+storm_summary$state <- storm_summary$abbreviation
+storm_summary <- storm_summary[ , !(names(storm_summary) %in% c("abbreviation"))]
+
+```
+
+### Plot the data using geom_statebins
+
+```{r}
+# Plot the total injuries and deaths data by state
+ggplot(storm_summary, aes(state = state, fill = Total_Injuries_Deaths)) +
+  geom_statebins() +
+  scale_fill_gradientn(name = "Total Injuries and Deaths", 
+                       colours = c("#eff3ff", "#bdd7e7", "#6baed6", "#3182bd", "#08519c"),
+                       values = scales::rescale(c(1, max(storm_summary$Total_Injuries_Deaths, na.rm = TRUE))),
+                       guide = "colourbar") +
+  theme_statebins() +
+  labs(title = "Total Injuries and Deaths by State",
+       subtitle = "Data represented using state bins")
+```
+
+Discussion:
+
+The first visualization uses a geographical map with states drawn to scale and colored according to the total monetary damage caused by storms. This map provides a geographical context that helps viewers recognize the affected areas and understand the spatial distribution of storm damage across the country. The color gradient gives a clear indication of the severity of damage, with darker colors representing more damage. This type of map is intuitive for viewers to understand and can be particularly effective for showing how the effects of storms are spread across different regions. However, the use of actual geographical shapes may give more visual weight to larger states, even if the impact is less severe compared to smaller states.
+
+The second visualization utilizes a grid layout, known as a "statebin" map, where each state is represented by an equally sized square. This approach avoids the size bias inherent in geographical maps, as each state has equal visual weight regardless of its actual size. The color gradient indicates the total number of injuries and deaths, providing a quick visual summary of the human impact of storms without the distraction of varying state sizes. However, since this map abstracts away the actual geography, it may be less immediately recognizable and might not convey the spatial relationships and proximity between states as effectively as a traditional map.
+
+In summary, if the goal is to show the spatial distribution and highlight areas with the greatest financial damage, the first map is more effective. However, if the objective is to present a clear, unbiased comparison of the impact across all states, the second "statebin" map is better. 
+
+
+# 2. Location of Severe Events
+
+## a) Interactive Map of Severe Weather Events
+
+Create a `leaflet` map of the United States showing the location of severe weather events which result in at least one death (hint: use `EVENT_TYPE`). Ignore locations that fall outside the United States. Provide at least three pieces of information on the incident in a popup. 
+
+### Filter the data
+
+```{r}
+# Filter severe weather events with at least one death and within the United States
+severe_events_us <- storm_data %>%
+  filter(DEATHS_DIRECT > 0, STATE %in% state_abbreviations$STATE) 
+
+# Match state names to state abbreviations
+severe_events_us <- severe_events_us %>%
+  mutate(STATE_ABBR = state_abbreviations$abbreviation[match(STATE, state_abbreviations$STATE)])
+```
+
+### Create the popup
+
+```{r, warning=FALSE}
+# Create a popup with at least three pieces of information
+popup <- lapply(1:nrow(severe_events_us), function(i) {
+  paste("<b>Event Type:</b>", severe_events_us$EVENT_TYPE[i],
+               "<br><b>Location:</b>", severe_events_us$STATE[i],
+               "<br><b>Date:</b>", severe_events_us$BEGIN_DATE_TIME[i],
+               "<br><b>Direct Deaths:</b>", severe_events_us$DEATHS_DIRECT[i],
+               "<br><b>Indirect Deaths:</b>", severe_events_us$DEATHS_INDIRECT[i],
+               "<br><b>Direct Injuries:</b>", severe_events_us$INJURIES_DIRECT[i],
+               "<br><b>Indirect Injuries:</b>", severe_events_us$INJURIES_INDIRECT[i])
+})
+```
+
+### Create the `leaflet` map
+
+```{r, warning=FALSE}
+# Set the Thunderforest API key
+thunderforest_api_key <- "fa59a7c912dd4eedb5a614e3a9720d1a"
+
+# Define the Thunderforest tile URL
+thunderforest_tile_url <- paste0("https://{s}.tile.thunderforest.com/{style}/{z}/{x}/{y}{scale}.{format}?apikey=",
+                                 thunderforest_api_key)
+
+# Create the leaflet map
+leaflet(severe_events_us) %>%
+  setView(lng = -95.7129, lat = 37.0902, zoom = 4) %>%  # Centered on the United States
+  addTiles(urlTemplate = thunderforest_tile_url, 
+           options = list(style = "cycle", format = "png", scale = "", apikey = thunderforest_api_key)) %>%
+  addMarkers(~BEGIN_LON, ~BEGIN_LAT, popup = popup)
+
+```
+
+
+## b) Color by Type of Weather Event
+
+Start with the previous map. Now, distinguish the markers of the weather event locations by `EVENT_TYPE`, i.e. what kind of weather event occurred. If there are too many categories, collapse some categories. Choose an appropriate coloring scheme to map the locations by type of weather event. Add a legend informing the user about the color scheme. Also make sure that the information about the type of weather event is now contained in the popup information. Show this map.
+
+### Check event type
+
+```{r}
+unique_event_types <- unique(severe_events_us$EVENT_TYPE)
+print(unique_event_types)
+```
+
+### Deal with event types
+
+```{r}
+# Collapse event type
+collapse_event_type <- function(event_type) {
+  event_mapping <- c(
+    "Flood" = "Water Related",
+    "Thunderstorm Wind" = "Wind Related",
+    "Wildfire" = "Fire Related",
+    "Strong Wind" = "Wind Related",
+    "Rip Current" = "Water Related",
+    "Tornado" = "Severe Storm",
+    "Flash Flood" = "Water Related",
+    "Extreme Cold/Wind Chill" = "Temperature Extreme",
+    "Cold/Wind Chill" = "Temperature Extreme",
+    "Ice Storm" = "Winter Related",
+    "High Surf" = "Water Related",
+    "Sneakerwave" = "Water Related",
+    "High Wind" = "Wind Related",
+    "Heavy Rain" = "Water Related",
+    "Heavy Snow" = "Winter Related",
+    "Lightning" = "Severe Storm",
+    "Heat" = "Temperature Extreme",
+    "Avalanche" = "Winter Related",
+    "Hurricane" = "Severe Storm",
+    "Excessive Heat" = "Temperature Extreme",
+    "Winter Weather" = "Winter Related",
+    "Storm Surge/Tide" = "Water Related",
+    "Tropical Storm" = "Severe Storm",
+    "Lakeshore Flood" = "Water Related",
+    "Winter Storm" = "Winter Related",
+    "Debris Flow" = "Water Related",
+    "Coastal Flood" = "Water Related",
+    "Blizzard" = "Winter Related",
+    "Hail" = "Severe Storm",
+    "Dust Storm" = "Wind Related",
+    "Frost/Freeze" = "Temperature Extreme",
+    "Astronomical Low Tide" = "Water Related",
+    "Lake-Effect Snow" = "Winter Related"
+  )
+
+  collapsed_event <- sapply(event_type, function(x) ifelse(x %in% names(event_mapping), event_mapping[x], "Other"))
+  
+  return(collapsed_event)
+}
+
+# Apply the function to the dataset
+severe_events_us$collapsed_event_type <- collapse_event_type(severe_events_us$EVENT_TYPE)
+
+```
+
+### Create a new popup
+
+```{r}
+popup2 <- lapply(1:nrow(severe_events_us), function(i) {
+  paste("<b>Collapsed Type:</b>", severe_events_us$collapsed_event_type[i],
+        "<br><b>Event Type:</b>", severe_events_us$EVENT_TYPE[i],
+        "<br><b>Location:</b>", severe_events_us$STATE[i],
+        "<br><b>Date:</b>", severe_events_us$BEGIN_DATE_TIME[i],
+        "<br><b>Direct Deaths:</b>", severe_events_us$DEATHS_DIRECT[i],
+        "<br><b>Indirect Deaths:</b>", severe_events_us$DEATHS_INDIRECT[i],
+        "<br><b>Direct Injuries:</b>", severe_events_us$INJURIES_DIRECT[i],
+        "<br><b>Indirect Injuries:</b>", severe_events_us$INJURIES_INDIRECT[i])
+})
+
+```
+
+### Adjust the points
+
+```{r, warning=FALSE}
+# Create a color palette for the unique collapsed event types
+event_types <- unique(severe_events_us$collapsed_event_type)
+pal <- colorFactor(palette = "Set3", domain = event_types)
+color_event_type <- pal(severe_events_us$collapsed_event_type)
+
+# Create a new leaflet map 
+map <- leaflet(severe_events_us) %>%
+  setView(lng = -95.7129, lat = 37.0902, zoom = 4) %>%  # Centered on the US
+  addTiles() %>%  # Default OpenStreetMap tiles
+  addCircles(~BEGIN_LON, ~BEGIN_LAT, color = ~color_event_type, popup = popup2)
+
+# Add a legend to the map
+map %>% addLegend("bottomright", pal = pal, values = ~collapsed_event_type, title = "Event Type")
+
+```
+
+The "Water Related" events appear to be concentrated along the Gulf Coast and the Eastern Seaboard, which is consistent with the areas that are often affected by hurricanes and tropical storms, especially during the hurricane season from June through November. Coastal flooding and storm surges contribute to these events. "Severe Storm" events, which could include tornadoes, are likely to be prevalent in the central and eastern United States.
+
+
+## c) Cluster
+
+Add marker clustering, so that zooming in will reveal the individual locations but the zoomed out map only shows the clusters. Show the map with clusters.
+
+### Add marker clustering
+
+```{r, warning=FALSE}
+# Add marker clusters to the map with the specified popup content and color
+map2 <- map %>% addCircleMarkers(
+  lng = ~BEGIN_LON, 
+  lat = ~BEGIN_LAT, 
+  color = ~color_event_type, 
+  popup = popup2, 
+  clusterOptions = markerClusterOptions()
+)
+
+# Add a legend to the map
+map2 <- map2 %>% addLegend(
+  position = "bottomright", 
+  pal = pal, 
+  values = ~collapsed_event_type, 
+  title = "Event Type"
+)
+
+map2
+```
+
+
+
+# 3. Severe Events and Cities
+
+For all severe weather event locations, identify the nearest city among the Top 100 largest cities in the United States ([here](https://github.com/plotly/datasets/blob/master/us-cities-top-1k.csv)) and calculate the distance between the weather event location and the storm location. 
+
+Provide a scatter plot showing the relationship between weather event impact and city population. 
+
+Now also visualize the patterns separately for different type of weather events (use `Event Type` but feel free to reduce the number of categories). What do you find?
+
+_Note:_ We did not explicitly discuss distance calculations in lecture. Two packages that have functions to calculate distances are `geosphere::distGeo()` and `RANN:nn2()`. 
+
+```{r, warning=FALSE}
+# Download and read the dataset of the Top 100 largest cities in the US
+top_cities <- read_csv("https://raw.githubusercontent.com/plotly/datasets/master/us-cities-top-1k.csv")
+
+```
+
+
+```{r, warning=FALSE}
+# Create a list-column in `severe_events_us` with nearest city information
+severe_events_us <- severe_events_us %>%
+  rowwise() %>%
+  mutate(nearest_city_info = list(
+    if (is.na(BEGIN_LON) | is.na(BEGIN_LAT)) {
+      list(city = NA, distance = NA, population = NA)
+    } else {
+      distances <- geosphere::distGeo(
+        matrix(c(BEGIN_LON, BEGIN_LAT), ncol = 2), 
+        matrix(c(top_cities$lon, top_cities$lat), ncol = 2)
+      )
+      nearest_city_index <- which.min(distances)
+      list(
+        city = top_cities$City[nearest_city_index], 
+        distance = distances[nearest_city_index], 
+        population = top_cities$Population[nearest_city_index]
+      )
+    }
+  )) %>%
+  ungroup()
+
+# Unpack the nearest city info
+severe_events_us <- severe_events_us %>%
+  mutate(
+    nearest_city = map_chr(nearest_city_info, 'city'),
+    distance_to_city = map_dbl(nearest_city_info, 'distance'),
+    nearest_city_population = map_dbl(nearest_city_info, 'population')
+  )
+
+# Ensure that population data is correctly joined
+severe_events_us <- severe_events_us %>%
+  left_join(top_cities %>% select(City, Population), by = c("nearest_city" = "City"))
+```
+
+
+```{r}
+# Plot 1: Relationship between weather event impact and log of city population
+ggplot(severe_events_us, aes(x = log10(nearest_city_population), y = DEATHS_DIRECT)) +
+  geom_point() +
+  theme_minimal() +
+  labs(
+    x = "Log of Nearest City Population",
+    y = "Number of Direct Deaths",
+    title = "Impact of Weather Events vs Log of Nearest City Population"
+  )
+
+# Plot 2: Relationship by collapsed event types with log of city population
+ggplot(severe_events_us, aes(x = log10(nearest_city_population), y = DEATHS_DIRECT, color = collapsed_event_type)) +
+  geom_point() +
+  theme_minimal() +
+  scale_color_viridis_d() +
+  labs(
+    x = "Log of Nearest City Population",
+    y = "Number of Direct Deaths",
+    title = "Impact of Weather Events by Type vs Log of Nearest City Population",
+    color = "Event Type"
+  )
+
+```
+
+Discussion: 
+
+- Distribution of Direct Deaths: The majority of data points cluster at the lower end of the direct deaths scale, which suggests that most weather events result in few or no direct fatalities. There are a few events with a higher number of direct deaths, which stand out above the general trend. These could be severe events that warrant further investigation to understand the factors contributing to higher fatalities.
+
+- Population Relationship: There doesn't appear to be a strong correlation between the size of the nearest city population (even on a logarithmic scale) and the number of direct deaths. This suggests that the severity of a weather event, in terms of direct fatalities, is not necessarily related to the population size of the nearest city.
+
+- Event Types: In the second plot, weather events are categorized by type. The distribution of direct deaths across different event types also shows that most events, regardless of type, result in few or no direct deaths. Severe storms and water-related events seem to have a few cases with higher fatalities. This might be characteristic of these types of events, possibly due to their sudden onset, intensity, or the specific circumstances of the areas they impact.
+
+
+
